@@ -1,24 +1,28 @@
 import * as React from 'react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/components/ui/sonner';
 import { ArrowLeft } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useLiveClasses } from '@/hooks/use-subjects';
+import type { FC } from 'react';
+import { cn } from '@/lib/utils';
 
 interface VideoSDKRoomProps {
   isTeacher?: boolean;
 }
 
-const VideoSDKRoom: React.FC<VideoSDKRoomProps> = ({ isTeacher = false }) => {
+const VideoSDKRoom: FC<VideoSDKRoomProps> = ({ isTeacher = false }) => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const [containerHeight, setContainerHeight] = useState<string>('100vh');
   const [iframeHeight, setIframeHeight] = useState<string>('100%');
   const navigate = useNavigate();
   const { subjectId, classId } = useParams<{ subjectId: string; classId: string }>();
   const { data: liveClasses } = useLiveClasses(subjectId);
-  const iframeRef = React.useRef<HTMLIFrameElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   
   const currentClass = liveClasses?.find(c => c.id === classId);
 
@@ -31,23 +35,84 @@ const VideoSDKRoom: React.FC<VideoSDKRoomProps> = ({ isTeacher = false }) => {
     }
   };
 
+  const updateDimensions = useCallback(() => {
+    if (!containerRef.current) return;
+
+    const isPortrait = window.innerHeight > window.innerWidth;
+    setOrientation(isPortrait ? 'portrait' : 'landscape');
+
+    // Get viewport dimensions
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
+
+    // Calculate safe areas
+    const safeTop = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sat') || '0');
+    const safeBottom = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sab') || '0');
+    const safeLeft = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sal') || '0');
+    const safeRight = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sar') || '0');
+
+    // Calculate container dimensions with padding
+    const padding = 32; // 16px on each side
+    const containerH = vh - Math.max(padding * 2, safeTop + safeBottom);
+    const containerW = vw - Math.max(padding * 2, safeLeft + safeRight);
+
+    // Set container height
+    setContainerHeight(`${containerH}px`);
+
+    // Calculate iframe dimensions
+    const iframeH = containerH - padding;
+    setIframeHeight(`${iframeH}px`);
+
+    // Force redraw of iframe
+    if (iframeRef.current) {
+      iframeRef.current.style.height = `${iframeH}px`;
+      requestAnimationFrame(() => {
+        if (iframeRef.current) {
+          iframeRef.current.style.display = 'none';
+          iframeRef.current.offsetHeight; // Force reflow
+          iframeRef.current.style.display = 'block';
+        }
+      });
+    }
+  }, []);
+
+  // Handle orientation change
+  const handleOrientationChange = useCallback(() => {
+    const isPortrait = window.innerHeight > window.innerWidth;
+    setOrientation(isPortrait ? 'portrait' : 'landscape');
+
+    const screenHeight = window.innerHeight;
+    const screenWidth = window.innerWidth;
+    
+    // Calculate safe area insets
+    const topInset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sat') || '0');
+    const bottomInset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sab') || '0');
+    const leftInset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sal') || '0');
+    const rightInset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sar') || '0');
+    
+    // Add padding for better UI (16px on each side)
+    const horizontalPadding = Math.max(32, leftInset + rightInset);
+    const verticalPadding = Math.max(32, topInset + bottomInset);
+    
+    // Set iframe height considering safe areas and padding
+    setIframeHeight(`${screenHeight - verticalPadding}px`);
+    
+    // Update body styles
+    document.body.style.overflow = 'hidden';
+    document.body.style.margin = '0';
+    document.body.style.padding = '0';
+    
+    // Force iframe to redraw after a small delay
+    setTimeout(() => {
+      if (iframeRef.current) {
+        iframeRef.current.style.display = 'none';
+        iframeRef.current.offsetHeight; // Force reflow
+        iframeRef.current.style.display = 'block';
+      }
+    }, 100);
+  }, []);
+
   useEffect(() => {
-    const handleOrientationChange = () => {
-      const isPortrait = window.innerHeight > window.innerWidth;
-      setOrientation(isPortrait ? 'portrait' : 'landscape');
-      
-      // Calculate safe areas and set iframe height
-      const windowHeight = window.innerHeight;
-      const windowWidth = window.innerWidth;
-      const safeAreaTop = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sat') || '0');
-      const safeAreaBottom = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sab') || '0');
-      
-      const height = isPortrait
-        ? `${windowHeight - safeAreaTop - safeAreaBottom}px`
-        : '100vh';
-      
-      setIframeHeight(height);
-    };
 
     // Initial orientation check
     handleOrientationChange();
@@ -157,46 +222,39 @@ const VideoSDKRoom: React.FC<VideoSDKRoomProps> = ({ isTeacher = false }) => {
 
   return (
     <div 
-      className="fixed inset-0 w-full h-full bg-black flex flex-col overscroll-none"
+      ref={containerRef}
+      className={cn(
+        'fixed inset-0 w-full bg-black flex flex-col items-center justify-center overscroll-none',
+        'p-4 md:p-8 safe-area-view'
+      )}
       style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        width: '100vw',
-        height: '100vh',
-        overflow: 'hidden',
-        paddingTop: 'env(safe-area-inset-top)',
-        paddingBottom: 'env(safe-area-inset-bottom)',
-        paddingLeft: 'env(safe-area-inset-left)',
-        paddingRight: 'env(safe-area-inset-right)'
+        height: containerHeight,
+        zIndex: 50,
       }}
     >
       {/* Square back button with rounded corners and grey background */}
         <button
           onClick={() => navigate('/live-classes')}
-        className="absolute top-[max(1rem,env(safe-area-inset-top))] left-[max(1rem,env(safe-area-inset-left))] z-50 w-10 h-10 flex items-center justify-center bg-gray-700/80 hover:bg-gray-600/80 rounded-lg transition-colors shadow-lg backdrop-blur-sm"
+        className="fixed top-[max(1.5rem,env(safe-area-inset-top))] left-[max(1.5rem,env(safe-area-inset-left))] z-[60] w-12 h-12 flex items-center justify-center bg-gray-700/80 hover:bg-gray-600/80 rounded-xl transition-colors shadow-lg backdrop-blur-sm"
         >
         <ArrowLeft className="h-5 w-5 text-white" />
         </button>
 
-      <iframe 
-        ref={iframeRef}
-        src={currentClass.roomUrl}
-        allow="camera; microphone; fullscreen; speaker; display-capture"
-        style={{
-          border: 'none',
-          width: '100%',
-          height: iframeHeight,
-          display: 'block',
-          backgroundColor: 'black',
-          flex: 1,
-          minHeight: 0,
-          margin: 0,
-          padding: 0
-        }}
-      />
+      <div className="relative w-full h-full max-w-[1920px] mx-auto rounded-xl overflow-hidden shadow-2xl">
+        <iframe 
+          ref={iframeRef}
+          src={currentClass.roomUrl}
+          allow="camera; microphone; fullscreen; speaker; display-capture"
+          className="w-full h-full bg-black"
+          style={{
+            height: iframeHeight,
+            border: 'none',
+            display: 'block',
+            margin: 0,
+            padding: 0
+          }}
+        />
+      </div>
     </div>
   );
 };

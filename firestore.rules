@@ -1,0 +1,22 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Public collections - anyone can read
+    match /subjects/{document=**} {
+      allow read: true;  // Allow public read access
+      allow write: if request.auth != null;  // Only authenticated users can write
+    }
+    
+    match /featuredTopics/{document=**} {
+      allow read: true;  // Allow public read access
+      allow write: if request.auth != null;  // Only authenticated users can write
+    }
+    
+    // Protected collections - require authentication
+    match /{document=**} {
+      allow read: true;  // Allow public read access
+      allow write: if request.auth != null;
+    }
+  }
+}
