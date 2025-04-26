@@ -6,6 +6,8 @@ export const useSubjects = () => {
     queryKey: ['subjects'],
     queryFn: getSubjects,
     staleTime: 1000 * 60 * 5, // 5 minutes
+    retry: 2,
+    refetchOnWindowFocus: false,
   });
 };
 
@@ -14,6 +16,8 @@ export const useFeaturedTopics = () => {
     queryKey: ['featuredTopics'],
     queryFn: getFeaturedTopics,
     staleTime: 1000 * 60 * 5, // 5 minutes
+    retry: 2,
+    refetchOnWindowFocus: false,
   });
 };
 

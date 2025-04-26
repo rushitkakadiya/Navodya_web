@@ -14,23 +14,51 @@ const VideoSDKRoom: React.FC<VideoSDKRoomProps> = ({ isTeacher = false }) => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const [iframeHeight, setIframeHeight] = useState<string>('100%');
   const navigate = useNavigate();
   const { subjectId, classId } = useParams<{ subjectId: string; classId: string }>();
   const { data: liveClasses } = useLiveClasses(subjectId);
+  const iframeRef = React.useRef<HTMLIFrameElement>(null);
   
   const currentClass = liveClasses?.find(c => c.id === classId);
 
+  // Handle fullscreen changes
+  const handleFullscreenChange = () => {
+    if (document.fullscreenElement) {
+      setIframeHeight('100vh');
+    } else {
+      handleOrientationChange();
+    }
+  };
+
   useEffect(() => {
     const handleOrientationChange = () => {
-      setOrientation(window.innerHeight > window.innerWidth ? 'portrait' : 'landscape');
+      const isPortrait = window.innerHeight > window.innerWidth;
+      setOrientation(isPortrait ? 'portrait' : 'landscape');
+      
+      // Calculate safe areas and set iframe height
+      const windowHeight = window.innerHeight;
+      const windowWidth = window.innerWidth;
+      const safeAreaTop = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sat') || '0');
+      const safeAreaBottom = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sab') || '0');
+      
+      const height = isPortrait
+        ? `${windowHeight - safeAreaTop - safeAreaBottom}px`
+        : '100vh';
+      
+      setIframeHeight(height);
     };
 
     // Initial orientation check
     handleOrientationChange();
 
-    // Listen for orientation changes
+    // Listen for orientation and fullscreen changes
     window.addEventListener('resize', handleOrientationChange);
     window.addEventListener('orientationchange', handleOrientationChange);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    
+    // Force orientation change after a short delay to handle initial render
+    setTimeout(handleOrientationChange, 100);
 
     const initializeRoom = async () => {
       try {
@@ -65,16 +93,29 @@ const VideoSDKRoom: React.FC<VideoSDKRoomProps> = ({ isTeacher = false }) => {
     document.documentElement.style.padding = '0';
     document.documentElement.style.height = '100%';
 
-    // Add viewport meta tag for proper mobile scaling
+    // Add viewport and safe-area meta tags for proper mobile scaling
     const viewportMeta = document.createElement('meta');
     viewportMeta.name = 'viewport';
     viewportMeta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
     document.head.appendChild(viewportMeta);
 
+    // Add safe-area CSS variables
+    const style = document.createElement('style');
+    style.textContent = `
+      :root {
+        --sat: env(safe-area-inset-top);
+        --sab: env(safe-area-inset-bottom);
+        --sal: env(safe-area-inset-left);
+        --sar: env(safe-area-inset-right);
+      }
+    `;
+    document.head.appendChild(style);
+
     return () => {
       // Cleanup
       window.removeEventListener('resize', handleOrientationChange);
       window.removeEventListener('orientationchange', handleOrientationChange);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.body.style.overflow = '';
       document.body.style.margin = '';
       document.body.style.padding = '';
@@ -83,6 +124,7 @@ const VideoSDKRoom: React.FC<VideoSDKRoomProps> = ({ isTeacher = false }) => {
       document.documentElement.style.padding = '';
       document.documentElement.style.height = '';
       document.head.removeChild(viewportMeta);
+      document.head.removeChild(style);
     };
   }, [currentClass]);
 
@@ -115,7 +157,7 @@ const VideoSDKRoom: React.FC<VideoSDKRoomProps> = ({ isTeacher = false }) => {
 
   return (
     <div 
-      className="fixed inset-0 w-full h-full bg-black"
+      className="fixed inset-0 w-full h-full bg-black flex flex-col overscroll-none"
       style={{
         position: 'fixed',
         top: 0,
@@ -124,28 +166,35 @@ const VideoSDKRoom: React.FC<VideoSDKRoomProps> = ({ isTeacher = false }) => {
         bottom: 0,
         width: '100vw',
         height: '100vh',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        paddingTop: 'env(safe-area-inset-top)',
+        paddingBottom: 'env(safe-area-inset-bottom)',
+        paddingLeft: 'env(safe-area-inset-left)',
+        paddingRight: 'env(safe-area-inset-right)'
       }}
     >
       {/* Square back button with rounded corners and grey background */}
         <button
           onClick={() => navigate('/live-classes')}
-        className="absolute top-4 left-4 z-50 w-10 h-10 flex items-center justify-center bg-gray-700/80 hover:bg-gray-600/80 rounded-lg transition-colors"
+        className="absolute top-[max(1rem,env(safe-area-inset-top))] left-[max(1rem,env(safe-area-inset-left))] z-50 w-10 h-10 flex items-center justify-center bg-gray-700/80 hover:bg-gray-600/80 rounded-lg transition-colors shadow-lg backdrop-blur-sm"
         >
         <ArrowLeft className="h-5 w-5 text-white" />
         </button>
 
       <iframe 
+        ref={iframeRef}
         src={currentClass.roomUrl}
         allow="camera; microphone; fullscreen; speaker; display-capture"
         style={{
           border: 'none',
           width: '100%',
-          height: orientation === 'landscape' ? '100vh' : 'calc(100vh - 1px)',
+          height: iframeHeight,
           display: 'block',
           backgroundColor: 'black',
-          position: 'absolute',
-          top: orientation === 'landscape' ? '0' : 'auto'
+          flex: 1,
+          minHeight: 0,
+          margin: 0,
+          padding: 0
         }}
       />
     </div>

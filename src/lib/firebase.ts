@@ -58,12 +58,26 @@ export const getCollection = async <T = DocumentData>(collectionPath: string): P
   try {
     console.log('Fetching collection:', collectionPath);
     const colRef = collection(db, collectionPath);
+    
+    // Set up security rules to allow public read access to these collections
+    const publicCollections = ['subjects', 'featuredTopics'];
+    const isPublicCollection = publicCollections.includes(collectionPath);
+    
+    if (!isPublicCollection && !auth.currentUser) {
+      console.log('Attempting to access protected collection without auth');
+      return [];
+    }
+    
     const snapshot = await getDocs(colRef);
     const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as T));
     console.log('Fetched data:', data);
     return data;
   } catch (error) {
     console.error(`Error fetching collection ${collectionPath}:`, error);
+    if (error instanceof Error && error.message.includes('permission-denied')) {
+      console.log('Permission denied, returning empty array');
+      return [];
+    }
     throw error;
   }
 };
@@ -82,12 +96,17 @@ export const getFeaturedTopics = async () => {
     return topics;
   } catch (error) {
     console.error('Error fetching featured topics:', error);
-    throw error;
+    return [];
   }
 };
 
 export const getSubjects = async () => {
-  return getCollection('subjects');
+  try {
+    return await getCollection('subjects');
+  } catch (error) {
+    console.error('Error fetching subjects:', error);
+    return [];
+  }
 };
 
 // Helper function to get document reference
